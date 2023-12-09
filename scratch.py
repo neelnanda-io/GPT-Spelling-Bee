@@ -56,41 +56,41 @@ print(answer)
 import circuitsvis as cv
 example_prompt = """ string: S T R I N G
  heaven: H E A V E N
- antidisestablishmentarianism: A N T I D I S E S T A B L I S H M E N T A R I A N I S M"""
+ xenograft: X E N O G R A F T"""
 logits, cache = model.run_with_cache(example_prompt)
 cv.logits.token_log_probs(model.to_tokens(example_prompt), model(example_prompt)[0].log_softmax(dim=-1), model.to_string)
 # %%
 for i, s in enumerate(model.to_str_tokens(example_prompt)):
     print(i, s)
 # %%
-resid_stack, labels = cache.get_full_resid_decomposition(expand_neurons=False, apply_ln=True, pos_slice=34, return_labels=True)
-T_dir = model.W_U[:, model.to_single_token(" T")]
-E_dir = model.W_U[:, model.to_single_token(" E")]
-diff_dir = T_dir - E_dir
-resid_stack = resid_stack.squeeze()
-line([resid_stack @ T_dir, resid_stack @ E_dir, resid_stack @ diff_dir], line_labels=["T", "E", "T-E"], x=labels, title="DLA on S in ESTABL")
+# resid_stack, labels = cache.get_full_resid_decomposition(expand_neurons=False, apply_ln=True, pos_slice=34, return_labels=True)
+# T_dir = model.W_U[:, model.to_single_token(" T")]
+# E_dir = model.W_U[:, model.to_single_token(" E")]
+# diff_dir = T_dir - E_dir
+# resid_stack = resid_stack.squeeze()
+# line([resid_stack @ T_dir, resid_stack @ E_dir, resid_stack @ diff_dir], line_labels=["T", "E", "T-E"], x=labels, title="DLA on S in ESTABL")
 # %%
-dla_df = pd.DataFrame({
-    "label": labels,
-    "Tdla": to_numpy(resid_stack @ T_dir),
-    "Edla": to_numpy(resid_stack @ E_dir),
-    "diff_dla": to_numpy(resid_stack @ diff_dir),
-    "is_head": [l.startswith("L") for l in labels],
-})
-dla_df
-# %%
-nutils.show_df(dla_df.sort_values("diff_dla", ascending=False).head(30))
-# %%
-key_heads = dla_df.query("is_head").sort_values("diff_dla", ascending=False).head(10)
-def unpack_label(label):
-    x = re.match(r'L(\d+)H(\d+)', label)
-    return int(x.group(1)), int(x.group(2))
-attns = []
-for i in key_heads.label.values:
-    L, H = unpack_label(i)
-    attn = cache["pattern", L][0, H, 34]
-    attns.append(attn)
-line(attns, x=nutils.process_tokens_index(example_prompt), line_labels=key_heads.label.values, title="Attention on S in ESTABL")
+# dla_df = pd.DataFrame({
+#     "label": labels,
+#     "Tdla": to_numpy(resid_stack @ T_dir),
+#     "Edla": to_numpy(resid_stack @ E_dir),
+#     "diff_dla": to_numpy(resid_stack @ diff_dir),
+#     "is_head": [l.startswith("L") for l in labels],
+# })
+# dla_df
+# # %%
+# nutils.show_df(dla_df.sort_values("diff_dla", ascending=False).head(30))
+# # %%
+# key_heads = dla_df.query("is_head").sort_values("diff_dla", ascending=False).head(10)
+# def unpack_label(label):
+#     x = re.match(r'L(\d+)H(\d+)', label)
+#     return int(x.group(1)), int(x.group(2))
+# attns = []
+# for i in key_heads.label.values:
+#     L, H = unpack_label(i)
+#     attn = cache["pattern", L][0, H, 34]
+#     attns.append(attn)
+# line(attns, x=nutils.process_tokens_index(example_prompt), line_labels=key_heads.label.values, title="Attention on S in ESTABL")
 # %%
 vocab_df = pd.DataFrame({
     "token": np.arange(d_vocab),
@@ -134,12 +134,12 @@ eff_embed.shape
 # %%
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
-char_index = 0
+char_index = 1
 col_label = f"let{char_index}"
 X = to_numpy(eff_embed[sub_vocab_df.token.values])
 y = sub_vocab_df[col_label].values
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-probe = LogisticRegression(max_iter=100)
+probe = LogisticRegression(max_iter=10)
 probe.fit(X_train, y_train)
 probe.score(X_test, y_test)
 # %%
@@ -155,4 +155,75 @@ temp_df = pd.DataFrame({
     "rank": (lp_test>clp_test[:, None]).sum(-1),
 })
 temp_df
+# %%
+alpha_U = model.W_U[:, [model.to_single_token(" "+c.upper()) for c in alphabet]]
+print(alpha_U.shape)
+head_probe_outs = eff_embed[sub_vocab_df.token.values] @ model.OV @ alpha_U
+head_probe_outs = head_probe_outs.AB
+# head_probe_outs = head_probe_outs[None, None]
+# %%
+imshow((head_probe_outs.argmax(dim=-1) == torch.tensor(sub_vocab_df.let0.values, device="cuda")).float().mean(-1), yaxis="Layer", xaxis="Head", title="Accuracy of Head Probes on First Letter")
+imshow((head_probe_outs.argmax(dim=-1) == torch.tensor(sub_vocab_df.let1.values, device="cuda")).float().mean(-1), yaxis="Layer", xaxis="Head", title="Accuracy of Head Probes on Second Letter")
+imshow((head_probe_outs.argmax(dim=-1) == torch.tensor(sub_vocab_df.let2.values, device="cuda")).float().mean(-1), yaxis="Layer", xaxis="Head", title="Accuracy of Head Probes on Third Letter")
+imshow((head_probe_outs.argmax(dim=-1) == torch.tensor(sub_vocab_df.let3.values, device="cuda")).float().mean(-1), yaxis="Layer", xaxis="Head", title="Accuracy of Head Probes on Fourth Letter")
+imshow((head_probe_outs.argmax(dim=-1) == torch.tensor(sub_vocab_df.let4.values, device="cuda")).float().mean(-1), yaxis="Layer", xaxis="Head", title="Accuracy of Head Probes on Fifth Letter")
+# %%
+letter = 0
+sub_vocab_df_array = torch.tensor(np.stack([sub_vocab_df.let0.values, sub_vocab_df.let1.values, sub_vocab_df.let2.values, sub_vocab_df.let3.values, sub_vocab_df.let4.values], axis=0), device="cuda")
+x = ((head_probe_outs.argmax(dim=-1) == letter) == (sub_vocab_df_array[:, None, None, :]==letter)).float().mean(-1)
+line(x.reshape(5, -1))
+# %%
+l = []
+for i in range(26):
+    l.append(X_train[:5000][y_train[:5000]==i].mean(0))
+per_token_ave = np.stack(l, axis=0)
+per_token_X_test = (X_test @ per_token_ave.T)
+temp_probe = LogisticRegression(max_iter=500)
+temp_probe.fit(X_train[5000:] @ per_token_ave.T, y_train[5000:])
+
+temp_probe.score(X_test @ per_token_ave.T, y_test)
+# %%
+short_chars_vocab_df = vocab_df.query("is_word & num_chars == 5")
+short_chars_vocab_df
+# %%
+def make_single_prompt():
+    word = short_chars_vocab_df.string.sample().item().strip()
+    return f" {word}:"+"".join([f" {c.upper()}" for c in word.strip()])
+def make_kshot_prompt(k=3):
+    return "\n".join([make_single_prompt() for _ in range(k)])
+def make_kshot_prompts(n=10, k=3):
+    return [make_kshot_prompt(k) for _ in range(n)]
+batch_size = 256
+prompts = make_kshot_prompts(batch_size, 3)
+tokens = model.to_tokens(prompts)
+logits, cache = model.run_with_cache(tokens)
+# %%
+answer_out = torch.zeros((batch_size, 5), device="cuda", dtype=torch.int64) - 1
+for i in range(batch_size):
+    for j in range(5):
+        answer_out[i, j] = alphabet.index(prompts[i][2*j-9].lower())
+alpha_tokens = torch.tensor([model.to_single_token(" "+c.upper()) for c in alphabet], device="cuda")
+alpha_log_probs = logits.log_softmax(dim=-1)[:, -6:-1, alpha_tokens]
+alpha_log_probs.gather(-1, answer_out[:, :, None]).squeeze().mean(0)
+# %%
+for i, s in enumerate(model.to_str_tokens(prompts[0])):
+    print(i, s)
+# %%
+head_df = pd.DataFrame({
+    "head": [h for l in range(n_layers) for h in range(n_heads)],
+    "layer": [l for l in range(n_layers) for h in range(n_heads)],
+    "label": [f"L{l}H{h}" for l in range(n_layers) for h in range(n_heads)],
+})
+WORD = 17
+for i in range(5):
+    head_df[f"attn{i}"] = to_numpy(cache.stack_activation("pattern")[:, :, :, WORD+1+i, WORD].mean(1).flatten())
+# %%
+nutils.show_df(head_df.sort_values("attn4", ascending=False).head(20))
+# %%
+alpha_U = model.W_U[:, alpha_tokens]
+alpha_U_cent = alpha_U - alpha_U.mean(-1, keepdim=True)
+resid_stack, labels = cache.decompose_resid(pos_slice=(-6, -1), apply_ln=True, return_labels=True)
+resid_stack_dla = resid_stack @ alpha_U_cent
+# %%
+line(resid_stack_dla.gather(-1, einops.repeat(answer_out, "x y -> component x y 1", component=len(labels))).squeeze().mean(1).T, x=labels)
 # %%
