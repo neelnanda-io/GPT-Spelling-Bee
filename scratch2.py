@@ -329,3 +329,121 @@ mlp_patch_df = pd.DataFrame(records)
 mlp_patch_df.to_csv("mlp_patch_df.csv")
 px.line(mlp_patch_df, x="layer", facet_col="mode", color="pos_label", y="Let2PrevDiff", title="MLP stream patching on Let2P2 - Let1P2")
 # %%
+clean_logits, clean_cache = model.run_with_cache(clean_tokens, names_filter=lambda n: n.endswith("attn_out"))
+corr_logits, corr_cache = model.run_with_cache(corr_tokens, names_filter=lambda n: n.endswith("attn_out"))
+
+def replace_attn_hook(attn_out, hook, new_cache, pos):
+    attn_out[:, pos, :] = new_cache[hook.name][:, pos, :]
+    return attn_out
+
+records = []
+pos_labels = {
+    -7: "word",
+    -6: ":",
+    -5: "Let0",
+    -4: "Let1",
+    -3: "Let2",
+    -2: "Let3",
+}
+for pos in tqdm.trange(-7, -1):
+    for layer in tqdm.trange(n_layers):
+        noised_logits = model.run_with_hooks(
+            clean_tokens,
+            fwd_hooks = [
+                (
+                    utils.get_act_name("attn_out", layer),
+                    partial(replace_attn_hook, pos=pos, new_cache=corr_cache),
+                )
+            ]
+        )
+        record = {
+            "pos": pos,
+            "pos_label": pos_labels[pos],
+            "layer": layer,
+            "mode": "noising",
+        }
+        record.update(patching_metrics(noised_logits, clean_answer_index))
+        records.append(record)
+        denoised_logits = model.run_with_hooks(
+            corr_tokens,
+            fwd_hooks = [
+                (
+                    utils.get_act_name("attn_out", layer),
+                    partial(replace_attn_hook, pos=pos, new_cache=clean_cache),
+                )
+            ]
+        )
+        record = {
+            "pos": pos,
+            "pos_label": pos_labels[pos],
+            "layer": layer,
+            "mode": "denoising",
+        }
+        record.update(patching_metrics(denoised_logits, clean_answer_index))
+        records.append(record)
+attn_patch_df = pd.DataFrame(records)
+attn_patch_df.to_csv("attn_patch_df.csv")
+px.line(attn_patch_df, x="layer", facet_col="mode", color="pos_label", y="Let2PrevDiff", title="attn stream patching on Let2P2 - Let1P2")
+
+# %%
+clean_logits, clean_cache = model.run_with_cache(clean_tokens, names_filter=lambda n: n.endswith("z"))
+corr_logits, corr_cache = model.run_with_cache(corr_tokens, names_filter=lambda n: n.endswith("z"))
+
+def replace_z_hook(z, hook, new_cache, pos):
+    z[:, pos, head, :] = new_cache[hook.name][:, pos, head, :]
+    return z
+
+records = []
+pos_labels = {
+    -7: "word",
+    -6: ":",
+    -5: "Let0",
+    -4: "Let1",
+    -3: "Let2",
+    -2: "Let3",
+}
+for pos in tqdm.trange(-7, -1):
+    for layer in tqdm.trange(n_layers):
+        for head in tqdm.trange(n_heads):
+            noised_logits = model.run_with_hooks(
+                clean_tokens,
+                fwd_hooks = [
+                    (
+                        utils.get_act_name("z", layer),
+                        partial(replace_attn_hook, pos=pos, new_cache=corr_cache),
+                    )
+                ]
+            )
+            record = {
+                "pos": pos,
+                "pos_label": pos_labels[pos],
+                "layer": layer,
+                "head": head,
+                "label": f"L{layer}H{head}",
+                "mode": "noising",
+            }
+            record.update(patching_metrics(noised_logits, clean_answer_index))
+            records.append(record)
+            denoised_logits = model.run_with_hooks(
+                corr_tokens,
+                fwd_hooks = [
+                    (
+                        utils.get_act_name("z", layer),
+                        partial(replace_attn_hook, pos=pos, new_cache=clean_cache),
+                    )
+                ]
+            )
+            record = {
+                "pos": pos,
+                "pos_label": pos_labels[pos],
+                "layer": layer,
+                "head": head,
+                "label": f"L{layer}H{head}",
+                "mode": "denoising",
+            }
+            record.update(patching_metrics(denoised_logits, clean_answer_index))
+            records.append(record)
+attn_head_patch_df = pd.DataFrame(records)
+attn_head_patch_df.to_csv("attn_head_patch_df.csv")
+px.line(attn_head_patch_df, x="layer", facet_col="mode", color="pos_label", y="Let2PrevDiff", title="attn_head patching on Let2P2 - Let1P2")
+# %%

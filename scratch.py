@@ -641,8 +641,8 @@ line(
     x=alphalist,
 )
 # %%
-sub_eff_embed = eff_embed[sub_vocab_df.index]
 sub_vocab_df = vocab_df.query("is_word & num_chars>=5").reset_index(drop=True)
+sub_eff_embed = eff_embed[sub_vocab_df.index]
 sub_eff_embed.shape, sub_vocab_df.shape
 # %%
 # for letter in range(5):
