@@ -645,53 +645,53 @@ sub_eff_embed = eff_embed[sub_vocab_df.index]
 sub_vocab_df = vocab_df.query("is_word & num_chars>=5").reset_index(drop=True)
 sub_eff_embed.shape, sub_vocab_df.shape
 # %%
-for letter in range(5):
-    train_indices = (sub_vocab_df.num_chars != 5).values
-    test_indices = ~train_indices
+# for letter in range(5):
+#     train_indices = (sub_vocab_df.num_chars != 5).values
+#     test_indices = ~train_indices
 
-    X_train = sub_eff_embed[train_indices]
-    X_test = sub_eff_embed[test_indices]
-    y_train = torch.tensor(sub_vocab_df[f"let{letter}"].values[train_indices]).cuda()
-    y_test = torch.tensor(sub_vocab_df[f"let{letter}"].values[test_indices]).cuda()
-    torch.set_grad_enabled(True)
-    probe = nn.Linear(d_model, 26).cuda()
-    optim = torch.optim.AdamW(
-        probe.parameters(), lr=0.0001, betas=(0.9, 0.98), weight_decay=0.1
-    )
+#     X_train = sub_eff_embed[train_indices]
+#     X_test = sub_eff_embed[test_indices]
+#     y_train = torch.tensor(sub_vocab_df[f"let{letter}"].values[train_indices]).cuda()
+#     y_test = torch.tensor(sub_vocab_df[f"let{letter}"].values[test_indices]).cuda()
+#     torch.set_grad_enabled(True)
+#     probe = nn.Linear(d_model, 26).cuda()
+#     optim = torch.optim.AdamW(
+#         probe.parameters(), lr=0.0001, betas=(0.9, 0.98), weight_decay=0.1
+#     )
 
-    def train_step():
-        loss = (
-            -probe(X_train).log_softmax(dim=-1)[np.arange(len(X_train)), y_train].mean()
-        )
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        return loss.item()
+#     def train_step():
+#         loss = (
+#             -probe(X_train).log_softmax(dim=-1)[np.arange(len(X_train)), y_train].mean()
+#         )
+#         optim.zero_grad()
+#         loss.backward()
+#         optim.step()
+#         return loss.item()
 
-    @torch.no_grad()
-    def test_loss_and_acc():
-        log_probs = probe(X_test).log_softmax(dim=-1)
+#     @torch.no_grad()
+#     def test_loss_and_acc():
+#         log_probs = probe(X_test).log_softmax(dim=-1)
 
-        clps = -log_probs[np.arange(len(X_test)), y_test].mean()
-        acc = (log_probs.argmax(dim=-1) == y_test).float().mean()
-        return acc.item(), clps.item()
+#         clps = -log_probs[np.arange(len(X_test)), y_test].mean()
+#         acc = (log_probs.argmax(dim=-1) == y_test).float().mean()
+#         return acc.item(), clps.item()
 
-    print()
-    print()
-    print()
-    print("Letter", letter)
-    print(train_step())
-    print(test_loss_and_acc())
+#     print()
+#     print()
+#     print()
+#     print("Letter", letter)
+#     print(train_step())
+#     print(test_loss_and_acc())
 
-    train_losses = []
-    test_losses = []
-    for i in tqdm.trange(2000):
-        train_losses.append(train_step())
-        if i % 100 == 0:
-            test_losses.append(test_loss_and_acc())
-            print(test_losses[-1], train_losses[-1])
-    print(test_loss_and_acc())
-    torch.save(probe.state_dict(), f"/workspace/GPT-Spelling-Bee/probe_let{letter}.pt")
+#     train_losses = []
+#     test_losses = []
+#     for i in tqdm.trange(2000):
+#         train_losses.append(train_step())
+#         if i % 100 == 0:
+#             test_losses.append(test_loss_and_acc())
+#             print(test_losses[-1], train_losses[-1])
+#     print(test_loss_and_acc())
+#     torch.save(probe.state_dict(), f"/workspace/GPT-Spelling-Bee/probe_let{letter}.pt")
 # %%
 probes = []
 for i in range(5):
@@ -719,8 +719,8 @@ for i in range(4):
     x.append(sub_vocab_df[f"let{i}"].value_counts().sort_index().values)
 line(x, x=alphalist, title="Frequency Statistics by letter")
 # %%
-eff_embed_5 = sub_eff_embed[sub_vocab_df.num_chars == 5]
 tokens_5 = sub_vocab_df.token[sub_vocab_df.num_chars == 5].values
+eff_embed_5 = eff_embed[tokens_5]
 eff_embed_5.shape, tokens_5
 
 
@@ -837,3 +837,107 @@ reordered_labels = [labels[i] for i in reordered_ind]
 reordered_arr = arr[reordered_ind][:, reordered_ind]
 imshow(reordered_arr, x=reordered_labels, y=reordered_labels)
 # %%
+layer = 30
+head = 4
+pattern = cache["pattern", layer][:, head, :, :]
+imshow(pattern[:5], facet_col=0, facet_labels=model.to_str_tokens(tokens[:5, WORD]), x=nutils.process_tokens_index(tokens[0]), y=nutils.process_tokens_index(tokens[0]))
+imshow(pattern.mean(0), x=nutils.process_tokens_index(tokens[0]), y=nutils.process_tokens_index(tokens[0]))
+imshow(pattern.std(0), x=nutils.process_tokens_index(tokens[0]), y=nutils.process_tokens_index(tokens[0]))
+
+# %%
+letter = 2
+batch_word_list = nutils.process_tokens_index(model.to_str_tokens(tokens[:, WORD]))
+log_probs = logits.log_softmax(dim=-1)[:, -6:-1, alpha_tokens][:, letter, :]
+line(log_probs.gather(-1, answer_tokens).T, x=batch_word_list)
+# %%
+batch_alpha_U = alpha_U_cent[:, answer_tokens]
+for letter in range(5):
+    resid_stack, resid_labels = cache.accumulated_resid(pos_slice=-6+letter, apply_ln=True, return_labels=True)
+    
+    logit_lens = einops.einsum(resid_stack, batch_alpha_U, "layer batch d_model, d_model batch letter -> letter layer batch")
+    imshow(logit_lens, facet_col=0, y=resid_labels, x=batch_word_list, title=f"Logit lens for letter {letter}")
+    line(logit_lens.mean(-1), title=f"Logit lens for letter {letter}")
+# %%
+# %%
+z_stack = cache.stack_activation("z")[:, :, -6:-1, :, :]
+print(z_stack.shape)
+W_O_alpha = model.W_O @ alpha_U_cent
+print(W_O_alpha.shape)
+W_O_answer = W_O_alpha[..., answer_tokens]
+print(W_O_answer.shape)
+head_dla = (
+    einops.einsum(
+        z_stack,
+        W_O_answer,
+        1 / cache["scale"][:, -6:-1, 0],
+        "layer batch letter head d_head, layer head d_head batch letter2, batch letter2 -> layer head letter letter2",
+    )
+    / batch_size
+)
+head_dla = head_dla.reshape(-1, 5, 5)
+head_labels = model.all_head_labels()
+head_dla.shape
+
+# %%
+mlp_out = cache.stack_activation("mlp_out")[:, :, -6:-1, :] 
+mlp_dla = einops.einsum(mlp_out, batch_alpha_U, 1 / cache["scale"][:, -6:-1, 0], "layer batch letter d_model, d_model batch letter2, batch letter2 -> layer letter letter2")/ batch_size
+mlp_labels = [f"MLP{i}" for i in range(n_layers)]
+dla_labels = head_labels + mlp_labels
+dla = torch.cat([head_dla, mlp_dla], dim=0)
+dla.shape
+# %%
+dla_diffs = []
+for letter in range(4):
+    dla_diff = dla[:, letter+1, letter]
+    # dla_diff = dla[:, letter, letter] - dla[:, letter+1, letter]
+    dla_diffs.append(dla_diff)
+line(dla_diffs, x=dla_labels, line_labels=[f"Let{i}" for i in range(4)], title="DLA for Let k at pos k+1")
+temp_df = pd.DataFrame(index=dla_labels)
+for i in range(4):
+    temp_df[f"Let{i}P{i}"] = to_numpy(dla[:, i, i])
+for i in range(4):
+    temp_df[f"Let{i}P{i+1}"] = to_numpy(dla[:, i+1, i])
+for i in range(4):
+    temp_df[f"Let{i}Diff"] = to_numpy(dla[:, i, i] - dla[:, i+1, i])
+temp_df["abs_max"] = temp_df.abs().max(axis=1)
+nutils.show_df(temp_df.sort_values("abs_max", ascending=False).head(30))
+
+
+
+
+
+# %%
+# %%
+clean_logits = model(clean_tokens)
+corr_logits = model(corr_tokens)
+
+line([clean_logits[np.arange(batch_size), -1, clean_answers] - clean_logits[np.arange(batch_size), -1, corr_answers], corr_logits[np.arange(batch_size), -1, clean_answers] - corr_logits[np.arange(batch_size), -1, corr_answers]])
+
+CLEAN_BASELINE_DIFF = (clean_logits[np.arange(batch_size), -1, clean_answers] - clean_logits[np.arange(batch_size), -1, corr_answers]).mean()
+CORR_BASELINE_DIFF = (corr_logits[np.arange(batch_size), -1, clean_answers] - corr_logits[np.arange(batch_size), -1, corr_answers]).mean()
+print("Clean Baseline Diff:", CLEAN_BASELINE_DIFF)
+print("Corr Baseline Diff:", CORR_BASELINE_DIFF)
+
+def metric(logits):
+    logit_diff = (logits[np.arange(batch_size), -1, clean_answers] - logits[np.arange(batch_size), -1, corr_answers]).mean()
+    return (logit_diff - CORR_BASELINE_DIFF) / (CLEAN_BASELINE_DIFF - CORR_BASELINE_DIFF)
+
+filter_not_qkv_input = lambda name: "_input" not in name and "_result" not in name and "_attn_in" not in name and "_mlp_in" not in name
+def get_cache_fwd_and_bwd(model, tokens, metric):
+    model.reset_hooks()
+    cache = {}
+    def forward_cache_hook(act, hook):
+        cache[hook.name] = act.detach()
+    model.add_hook(filter_not_qkv_input, forward_cache_hook, "fwd")
+
+    grad_cache = {}
+    def backward_cache_hook(act, hook):
+        grad_cache[hook.name] = act.detach()
+    model.add_hook(filter_not_qkv_input, backward_cache_hook, "bwd")
+
+    torch.set_grad_enabled(True)
+    value = metric(model(tokens))
+    value.backward()
+    model.reset_hooks()
+    torch.set_grad_enabled(False)
+    return value.item(), ActivationCache(cache, model), ActivationCache(grad_cache, model)
